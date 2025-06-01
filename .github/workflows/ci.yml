@@ -103,20 +103,19 @@ jobs:
           name: frontend-image
           path: ./
 
-      - name: Install SSH key
-        uses: shimataro/ssh-key-action@v2
-        with:
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          known_hosts: ${{ secrets.KNOWN_HOSTS }}
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass
 
       - name: Transfer Docker Compose file
         run: |
-          scp -P 5422 docker-compose.yml ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/
+          export SSHPASS=${{ secrets.SSH_PASSWORD }}
+          sshpass -e scp -P ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=no docker-compose.yml ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/
 
       - name: Transfer Docker images and deploy
         run: |
-          scp -P 5422 backend-image.tar.gz frontend-image.tar.gz ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/
-          ssh -p 5422 ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} << 'EOF'
+          export SSHPASS=${{ secrets.SSH_PASSWORD }}
+          sshpass -e scp -P ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=no backend-image.tar.gz frontend-image.tar.gz ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/
+          sshpass -e ssh -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} << 'EOF'
             # Load Docker images
             docker load < backend-image.tar.gz
             docker load < frontend-image.tar.gz
