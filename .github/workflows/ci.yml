@@ -41,165 +41,91 @@ jobs:
           npm ci
           npm run build
 
-  package-applications:
+  build-and-push-images:
     needs: build-and-test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Backend packaging
-      - name: Set up JDK 21
-        uses: actions/setup-java@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build and export backend Docker image
+        uses: docker/build-push-action@v4
         with:
-          distribution: 'temurin'
-          java-version: '21'
-          cache: gradle
+          context: ./backend
+          file: ./backend/Dockerfile
+          load: true
+          tags: todo-app-backend:latest
 
-      - name: Package backend application
-        working-directory: ./backend
-        run: |
-          chmod +x ./gradlew
-          ./gradlew bootJar
-          mkdir -p ../deployment/backend
-          cp build/libs/*.jar ../deployment/backend/app.jar
-          cp -r src/main/resources ../deployment/backend/resources
-
-      # Frontend packaging
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
+      - name: Build and export frontend Docker image
+        uses: docker/build-push-action@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: './frontend/package-lock.json'
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          load: true
+          tags: todo-app-frontend:latest
 
-      - name: Package frontend application
-        working-directory: ./frontend
+      - name: Save Docker images
         run: |
-          npm ci
-          npm run build
-          mkdir -p ../deployment/frontend
-          cp -r .output ../deployment/frontend/
+          docker save todo-app-backend:latest | gzip > backend-image.tar.gz
+          docker save todo-app-frontend:latest | gzip > frontend-image.tar.gz
 
-      # Create deployment scripts
-      - name: Create deployment scripts
-        run: |
-          mkdir -p deployment/scripts
-
-          # Backend start script
-          cat > deployment/scripts/start-backend.sh << 'EOL'
-          #!/bin/bash
-          cd backend
-          mkdir -p ~/data
-          export SPRING_DATASOURCE_URL=jdbc:sqlite:~/data/todo.db
-          java -jar app.jar
-          EOL
-
-          # Frontend start script
-          cat > deployment/scripts/start-frontend.sh << 'EOL'
-          #!/bin/bash
-          cd frontend
-          export HOST=0.0.0.0
-          export PORT=3000
-          export NUXT_PUBLIC_API_BASE_URL=http://localhost:8080
-          node .output/server/index.mjs
-          EOL
-
-          # Make scripts executable
-          chmod +x deployment/scripts/start-backend.sh
-          chmod +x deployment/scripts/start-frontend.sh
-
-          # Create service files for systemd
-          cat > deployment/scripts/todo-backend.service << 'EOL'
-          [Unit]
-          Description=Todo App Backend Service
-          After=network.target
-
-          [Service]
-          Type=simple
-          User=spark-dev
-          WorkingDirectory=/home/spark-dev/todo-app
-          ExecStart=/bin/bash /home/spark-dev/todo-app/scripts/start-backend.sh
-          Restart=on-failure
-
-          [Install]
-          WantedBy=multi-user.target
-          EOL
-
-          cat > deployment/scripts/todo-frontend.service << 'EOL'
-          [Unit]
-          Description=Todo App Frontend Service
-          After=todo-backend.service
-
-          [Service]
-          Type=simple
-          User=spark-dev
-          WorkingDirectory=/home/spark-dev/todo-app
-          ExecStart=/bin/bash /home/spark-dev/todo-app/scripts/start-frontend.sh
-          Restart=on-failure
-
-          [Install]
-          WantedBy=multi-user.target
-          EOL
-
-      - name: Create deployment archive
-        run: |
-          tar -czf todo-app-deployment.tar.gz -C deployment .
-
-      - name: Upload deployment archive as artifact
+      - name: Upload backend image as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: todo-app-deployment
-          path: todo-app-deployment.tar.gz
+          name: backend-image
+          path: backend-image.tar.gz
+
+      - name: Upload frontend image as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-image
+          path: frontend-image.tar.gz
 
   deploy:
-    needs: package-applications
+    needs: build-and-push-images
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download deployment archive
+      - name: Download backend image
         uses: actions/download-artifact@v4
         with:
-          name: todo-app-deployment
+          name: backend-image
+          path: ./
+
+      - name: Download frontend image
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-image
           path: ./
 
       - name: Install sshpass
         run: sudo apt-get install -y sshpass
 
-      - name: Transfer and deploy application
+      - name: Transfer Docker Compose file
         run: |
           export SSHPASS=${{ secrets.SSH_PASSWORD }}
+          sshpass -e scp -P ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=no docker-compose.yml ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/
 
-          # Create deployment directory on remote server
-          sshpass -e ssh -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} "mkdir -p ~/todo-app"
-
-          # Transfer deployment archive
-          sshpass -e scp -P ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=no todo-app-deployment.tar.gz ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/
-
-          # Deploy application
+      - name: Transfer Docker images and deploy
+        run: |
+          export SSHPASS=${{ secrets.SSH_PASSWORD }}
+          sshpass -e scp -P ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=no backend-image.tar.gz frontend-image.tar.gz ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/
           sshpass -e ssh -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} << 'EOF'
-            # Stop existing services if they exist
-            sudo systemctl stop todo-frontend.service || true
-            sudo systemctl stop todo-backend.service || true
+            # Load Docker images
+            docker load < backend-image.tar.gz
+            docker load < frontend-image.tar.gz
 
-            # Extract deployment archive
-            tar -xzf todo-app-deployment.tar.gz -C ~/todo-app
+            # Stop and remove existing containers
+            docker-compose down || true
 
-            # Install service files
-            sudo cp ~/todo-app/scripts/todo-backend.service /etc/systemd/system/
-            sudo cp ~/todo-app/scripts/todo-frontend.service /etc/systemd/system/
-
-            # Reload systemd
-            sudo systemctl daemon-reload
-
-            # Start services
-            sudo systemctl enable todo-backend.service
-            sudo systemctl enable todo-frontend.service
-            sudo systemctl start todo-backend.service
-            sudo systemctl start todo-frontend.service
+            # Start containers with new images
+            docker-compose up -d
 
             # Clean up
-            rm todo-app-deployment.tar.gz
+            rm backend-image.tar.gz frontend-image.tar.gz
           EOF
