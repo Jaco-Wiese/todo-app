@@ -121,10 +121,16 @@ jobs:
             docker load < frontend-image.tar.gz
 
             # Stop and remove existing containers
-            docker-compose down || true
+            docker stop todo-app-frontend todo-app-backend || true
+            docker rm todo-app-frontend todo-app-backend || true
+
+            # Create network if it doesn't exist
+            docker network create todo-app-network || true
 
             # Start containers with new images
-            docker-compose up -d
+            docker run -d --name todo-app-backend --network todo-app-network todo-app-backend:latest
+            docker run -d --name todo-app-frontend -p 3000:3000 --network todo-app-network todo-app-frontend:latest
+
 
             # Clean up
             rm backend-image.tar.gz frontend-image.tar.gz
