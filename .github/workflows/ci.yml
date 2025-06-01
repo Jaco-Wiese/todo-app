@@ -1,0 +1,133 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Backend build and test
+      - name: Set up JDK 21
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: gradle
+
+      - name: Build and test backend
+        working-directory: ./backend
+        run: |
+          chmod +x ./gradlew
+          ./gradlew build
+
+      # Frontend build and test
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './frontend/package-lock.json'
+
+      - name: Build and test frontend
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run build
+          npm test
+
+  build-and-push-images:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build and export backend Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          load: true
+          tags: todo-app-backend:latest
+
+      - name: Build and export frontend Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          load: true
+          tags: todo-app-frontend:latest
+
+      - name: Save Docker images
+        run: |
+          docker save todo-app-backend:latest | gzip > backend-image.tar.gz
+          docker save todo-app-frontend:latest | gzip > frontend-image.tar.gz
+
+      - name: Upload backend image as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: backend-image
+          path: backend-image.tar.gz
+
+      - name: Upload frontend image as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: frontend-image
+          path: frontend-image.tar.gz
+
+  deploy:
+    needs: build-and-push-images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Download backend image
+        uses: actions/download-artifact@v3
+        with:
+          name: backend-image
+          path: ./
+
+      - name: Download frontend image
+        uses: actions/download-artifact@v3
+        with:
+          name: frontend-image
+          path: ./
+
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          known_hosts: ${{ secrets.KNOWN_HOSTS }}
+
+      - name: Transfer Docker Compose file
+        run: |
+          scp -P 5422 docker-compose.yml ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/
+
+      - name: Transfer Docker images and deploy
+        run: |
+          scp -P 5422 backend-image.tar.gz frontend-image.tar.gz ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/
+          ssh -p 5422 ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} << 'EOF'
+            # Load Docker images
+            docker load < backend-image.tar.gz
+            docker load < frontend-image.tar.gz
+
+            # Stop and remove existing containers
+            docker-compose down || true
+
+            # Start containers with new images
+            docker-compose up -d
+
+            # Clean up
+            rm backend-image.tar.gz frontend-image.tar.gz
+          EOF
