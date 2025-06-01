@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       # Backend build and test
       - name: Set up JDK 21
@@ -27,7 +27,7 @@ jobs:
           chmod +x ./gradlew
           ./gradlew build
 
-      # Frontend build and test
+      # Frontend build
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
@@ -73,13 +73,13 @@ jobs:
           docker save todo-app-frontend:latest | gzip > frontend-image.tar.gz
 
       - name: Upload backend image as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: backend-image
           path: backend-image.tar.gz
 
       - name: Upload frontend image as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: frontend-image
           path: frontend-image.tar.gz
@@ -89,16 +89,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Download backend image
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: backend-image
           path: ./
 
       - name: Download frontend image
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: frontend-image
           path: ./
