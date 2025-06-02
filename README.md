@@ -45,7 +45,7 @@ The application is deployed on a VM instance. To connect to it, you need to set 
 1. **Set up port forwarding for the frontend**:
 
 ```bash
-ssh -L 3001:localhost:3000 username@ip -p port
+ssh -L 3000:localhost:3000 username@ip -p port
 ```
 
 2. **Set up port forwarding for the backend**:
@@ -58,7 +58,7 @@ ssh -L 8080:localhost:8080 username@ip -p port
 
 After setting up the port forwarding, you can access the application at:
 ```
-http://localhost:3001
+http://localhost:3000
 ```
 
 Note: You need to keep the SSH sessions open while using the application.
