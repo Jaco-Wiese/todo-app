@@ -128,7 +128,7 @@ jobs:
             docker network create todo-app-network || true
 
             # Start containers with new images
-            docker run -d --name todo-app-backend --network todo-app-network todo-app-backend:latest
+            docker run -d --name todo-app-backend -p 8080:8080 --network todo-app-network todo-app-backend:latest
             docker run -d --name todo-app-frontend -p 3000:3000 --network todo-app-network todo-app-frontend:latest
 
 
