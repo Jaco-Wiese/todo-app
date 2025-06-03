@@ -68,7 +68,4 @@ Note: You need to keep the SSH sessions open while using the application.
 - `backend/`: Spring Boot application with REST API
 - `frontend/`: Vue.js application for the user interface
 - `docker-compose.yml`: Docker Compose configuration for local development
-
-## Additional Information
-
-For information about the CI/CD setup and deployment process, please refer to the [CI-CD-SETUP.md](CI-CD-SETUP.md) file.
+- 
