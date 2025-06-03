@@ -68,4 +68,3 @@ Note: You need to keep the SSH sessions open while using the application.
 - `backend/`: Spring Boot application with REST API
 - `frontend/`: Vue.js application for the user interface
 - `docker-compose.yml`: Docker Compose configuration for local development
-- 
